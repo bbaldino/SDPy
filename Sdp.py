@@ -1,14 +1,18 @@
 from SdpDefs import SdpTerms
-from PyParsingSdpDefs import sdp_def
+import PyParsingSdpDefs as grammar
 
 # ------ PyParsing-related base classes ------
 
 # Parse a single line.  Just take the fields and assign them as member variables
 class PyParsedLine(object):
     def __init__(self, parsed_line):
-        print("PARSING LINE: %s" % parsed_line)
         for field in parsed_line.keys():
-            setattr(self, field.lower(), parsed_line[field])
+            value = parsed_line[field]
+            if not isinstance(value, basestring):
+                # Only instance where we don't have a string here is if it was a repeated field so we have a ParseResults
+                #  object which contains the list.  Grab the raw list instead
+                value = value.asList()
+            setattr(self, field.lower(), value)
 
     def to_string(self, prefix=""):
         str = ""
@@ -20,16 +24,10 @@ class PyParsedLine(object):
 #  that isn't parsed as just a dictionary (the bottom of the chain) but is still a ParseResults object
 class PyParsedMetaLine(object):
     def __init__(self, parsed_line):
-        print("PARSING META LINE: %s" % parsed_line.asDict())
         # Only 1 level of meta
         assert len(parsed_line.keys()) == 1
         sub_line_name = parsed_line.keys()[0]
         sub_line = parsed_line[sub_line_name]
-        
-        #if sub_line_name == "GENERIC_APPLICATION_LINE": # TODO: should only be necessary until we have parsing for all application field sub-types (?)
-        #    setattr(self, sub_line_name.lower(), SdpObjectMapping[sub_line_name]({"content": sub_line}))
-        #else:
-        #    setattr(self, sub_line_name.lower(), SdpObjectMapping[sub_line_name](sub_line))
         setattr(self, sub_line_name.lower(), SdpObjectMapping[sub_line_name](sub_line))
 
     def to_string(self, prefix=""):
@@ -72,8 +70,10 @@ class PyParsedMultiSection(object):
     def __init__(self, sub_section_type, parsed_sections):
         self.sub_sections = []
         for section in parsed_sections:
-            print("looking at multi sub section:\n%s" % section.asDict())
             self.sub_sections.append(sub_section_type(section))
+
+    def __iter__(self):
+        return iter(self.sub_sections)
 
     def to_string(self, prefix=""):
         str = ""
@@ -166,17 +166,26 @@ class MediaSections(PyParsedMultiSection):
         super(MediaSections, self).__init__(MediaSection, parsed_media_sections)
     
 # ------ SDP top level class ------
-import pprint
-pp = pprint.PrettyPrinter(indent=4)
 class Sdp:
     fields = [SdpTerms.SESSION_SECTION, SdpTerms.MEDIA_SECTIONS]
     def __init__(self, sdp_string):
-        res = sdp_def.parseString(sdp_string)
-        #print("Second media section:")
-        #pp.pprint(res["MEDIA_SECTIONS"][1].asDict())
+        res = grammar.sdp.parseString(sdp_string)
         for field in Sdp.fields:
             setattr(self, field.lower(), SdpObjectMapping[field](res[field]))
-        print(self.to_string())
+
+    @property
+    def audio(self):
+        for media_section in self.media_sections:
+            if media_section.media_description_line.media_type == "audio":
+                return media_section
+        return None
+
+    @property
+    def video(self):
+        for media_section in self.media_sections:
+            if media_section.media_description_line.media_type == "video":
+                return media_section
+        return None
 
     def to_string(self, prefix=""):
         str = ""

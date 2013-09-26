@@ -81,18 +81,21 @@ time_description_line = Group(time_description_line_prefix + timestamp("START_TI
 # ---- Application line ----
 # Prefix
 application_line_prefix = Suppress(Literal("a="))
-# Fields
+# Fields (specific versions of known a lines and a catchall)
 # Direction line
 direction = (Literal("sendonly") | Literal("sendrecv") | Literal("recvonly")).setName("DIRECTION")
 application_line_direction = Group(direction("DIRECTION").setName("APPLICATION_LINE_DIRECTION"))
 # Rtcp Line
 application_line_rtcp = Group(Suppress(Literal("rtcp:").setName("APPLICATION_LINE_RTCP_PREFIX")) + port("PORT") + Optional(nettype("NETTYPE")) + Optional(addrtype("ADDRTYPE")) + Optional(ip_addr("IP_ADDR")))
+# ice-ufrag
+application_line_ice_ufrag = Group(Suppress(Literal("ice-ufrag:").setName("APPLICATION_LINE_ICE_UFRAG_PREFIX")) + Word(alphanums + "+")("USERNAME"))
 # Generic app line
 application_line_generic = Group(restOfLine("CONTENT").setName("APPLICATION_LINE_GENERIC"))
 # Line
 #application_line = Group(application_line_prefix + restOfLine("APP_LINE_DATA")).setName("APPLICATION_LINE")
 application_line = Group(application_line_prefix + (application_line_direction(SdpTerms.DIRECTION_APPLICATION_LINE) | 
                                                     application_line_rtcp(SdpTerms.RTCP_APPLICATION_LINE) | 
+                                                    application_line_ice_ufrag(SdpTerms.ICE_UFRAG_APPLICATION_LINE) |
                                                     application_line_generic(SdpTerms.GENERIC_APPLICATION_LINE)).setName("APPLICATION_LINE"))
 
 # ---- Media Description line ----
@@ -128,5 +131,5 @@ media_section = media_description_line(SdpTerms.MEDIA_DESCRIPTION_LINE) + \
 
 
 # ---- SDP ----
-sdp_def = session_section(SdpTerms.SESSION_SECTION) + \
-          ZeroOrMore(media_section.setResultsName(SdpTerms.MEDIA_SECTIONS, listAllMatches=True))
+sdp = session_section(SdpTerms.SESSION_SECTION) + \
+      ZeroOrMore(media_section.setResultsName(SdpTerms.MEDIA_SECTIONS, listAllMatches=True))

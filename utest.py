@@ -11,7 +11,7 @@ def verify_line(test_obj, parsed_res, expected_line_data):
             test_obj.assertIn(field, parsed_res, "Couldn't find %s in\n%s" % (field, parsed_res.dump()))
             if isinstance(value, list):
                 # If it's a repeated field (instance of list) grab it asList so we get the raw list instead of the
-                #  PyParseResults object
+                #  ParseResults object
                 test_obj.assertEqual(parsed_res[field].asList(), value)
             else:
                 test_obj.assertEqual(parsed_res[field], value)
@@ -54,13 +54,12 @@ def build_line_str(line_data):
 def build_section_str(section_data):
     fields = section_data["fields"]
     str = ""
-    for field in fields:
-        if isinstance(field[1], list):
+    for field_name, field_value in fields:
+        if isinstance(field_value, list):
             # multi-line field
-            for sub_field in field[1]:
-                str += (build_line_str(sub_field) + "\n")
+            str += "\n".join(build_line_str(sub_field) for sub_field in field_value)
         else:
-            str += build_line_str(field[1])
+            str += build_line_str(field_value)
         str += "\n"
     return str
 
@@ -100,8 +99,11 @@ class SampleData(object):
     tline_data = {"prefix": "t=",
                   "fields": [("START_TIME", "1234567"),
                              ("STOP_TIME", "2345678")]}
-
-
+    mline_data = {"prefix": "m=",
+                  "fields": [("MEDIA_TYPE", "audio"),
+                             ("PORT", "0"),
+                             ("PROTO", "RTP/SAVPF"),
+                             ("FORMATS", ["111", "222", "333", "444"])]}
 
 class TestLineParsing(unittest.TestCase):
     def test_parse_version_line(self):
@@ -127,7 +129,8 @@ class TestLineParsing(unittest.TestCase):
 
     def test_parse_generic_application_line(self):
         aline_data = {"prefix": "a=",
-                      "fields": [("GENERIC_APPLICATION_LINE", "some unknown generic line")]}
+                      "fields": [("GENERIC_APPLICATION_LINE", {"prefix": "",
+                                                               "fields": [("CONTENT", "some unknown generic line")]})]}
         
         parse_and_verify_line(self, grammar.application_line, aline_data)
 
@@ -148,51 +151,22 @@ class TestLineParsing(unittest.TestCase):
 
         parse_and_verify_line(self, grammar.application_line, aline_data)
 
-    def test_parse_media_description_line(self):
-        mline_data = {"prefix": "m=",
-                      "fields": [("MEDIA_TYPE", "audio"),
-                                 ("PORT", "0"),
-                                 ("PROTO", "RTP/SAVPF"),
-                                 ("FORMATS", ["111", "222", "333", "444"])]}
+    def test_parse_ice_ufrag_application_line(self):
+        aline_data = {"prefix": "a=",
+                      "fields": [("ICE_UFRAG_APPLICATION_LINE", {"prefix": "ice-ufrag:",
+                                                                 "fields": [("USERNAME", "abcdefghi1234+ab")]})]}
 
-        parse_and_verify_line(self, grammar.media_description_line, mline_data)
+        parse_and_verify_line(self, grammar.application_line, aline_data)
+
+
+    def test_parse_media_description_line(self):
+        parse_and_verify_line(self, grammar.media_description_line, SampleData.mline_data)
 
 class TestSectionParsing(unittest.TestCase):
     def test_parse_session_section(self):
-        vline_data = {"prefix": "v=",
-                      "fields": [("VERSION_NUMBER", "0")]
-                     }
-
-        oline_data = {"prefix": "o=",
-                      "fields": [("USERNAME", "-"), 
-                                 ("SESSION_ID", "4143029973181426116"), 
-                                 ("SESSION_VERSION", "2"),
-                                 ("NETTYPE", "IN"),
-                                 ("ADDRTYPE", "IP4"),
-                                 ("IP_ADDR", "127.0.0.1")]}
-
-        sline_data = {"prefix": "s=",
-                      "fields": [("SESSION_NAME", "-")]}
-
-        iline_data = {"prefix": "i=",
-                      "fields": [("SESSION_INFORMATION", "Test Session")]}
-
-        cline_data = {"prefix": "c=",
-                      "fields": [("NETTYPE", "IN"),
-                                 ("ADDRTYPE", "IP4"),
-                                 ("IP_ADDR", "127.0.0.1")]}
-
-        bline_data = {"prefix": "b=",
-                      "join_token": ":",
-                      "fields": [("BWTYPE", "AS"),
-                                 ("BW", "128")]}
-
-        tline_data = {"prefix": "t=",
-                      "fields": [("START_TIME", "1234567"),
-                                 ("STOP_TIME", "2345678")]}
-
         generic_aline_data = {"prefix": "a=",
-                              "fields": [("GENERIC_APPLICATION_LINE", "some unknown generic line")]}
+                              "fields": [("GENERIC_APPLICATION_LINE", {"prefix": "",
+                                                                       "fields": [("CONTENT", "some unknown generic line")]})]}
 
         direction_aline_data = {"prefix": "a=",
                                 "fields": [("DIRECTION_APPLICATION_LINE", {"prefix": "",
@@ -205,13 +179,13 @@ class TestSectionParsing(unittest.TestCase):
                                                                             ("ADDRTYPE", "IP4"),
                                                                             ("IP_ADDR", "127.0.0.1")]})]}
 
-        session_section_data = {"fields": [("VERSION_LINE", vline_data),
-                                           ("ORIGINATOR_LINE", oline_data),
-                                           ("SESSION_NAME_LINE", sline_data),
-                                           ("SESSION_INFORMATION_LINE", iline_data),
-                                           ("CONNECTION_INFORMATION_LINE", cline_data),
-                                           ("BANDWIDTH_INFORMATION_LINES", [bline_data]),
-                                           ("TIME_DESCRIPTION_LINES", [tline_data]),
+        session_section_data = {"fields": [("VERSION_LINE", SampleData.vline_data),
+                                           ("ORIGINATOR_LINE", SampleData.oline_data),
+                                           ("SESSION_NAME_LINE", SampleData.sline_data),
+                                           ("SESSION_INFORMATION_LINE", SampleData.iline_data),
+                                           ("CONNECTION_INFORMATION_LINE", SampleData.cline_data),
+                                           ("BANDWIDTH_INFORMATION_LINES", [SampleData.bline_data]),
+                                           ("TIME_DESCRIPTION_LINES", [SampleData.tline_data]),
                                            ("APPLICATION_LINES", [generic_aline_data, direction_aline_data, rtcp_aline_data])]}
 
         parse_and_test_section(self, grammar.session_section, session_section_data)
@@ -237,7 +211,8 @@ class TestSectionParsing(unittest.TestCase):
                                  ("BW", "128")]}
 
         generic_aline_data = {"prefix": "a=",
-                              "fields": [("GENERIC_APPLICATION_LINE", "some unknown generic line")]}
+                              "fields": [("GENERIC_APPLICATION_LINE", {"prefix": "",
+                                                                       "fields": [("CONTENT", "some unknown generic line")]})]}
 
         direction_aline_data = {"prefix": "a=",
                                 "fields": [("DIRECTION_APPLICATION_LINE", {"prefix": "",
@@ -259,7 +234,6 @@ class TestSectionParsing(unittest.TestCase):
 
 def verify_line_object(test_obj, line_object, expected_data):
     for field_name, field_value in expected_data["fields"]:
-        print("looking at field_name %s and filed_value %s" % (field_name, field_value))
         # Meta-line
         if isinstance(field_value, dict):
             verify_line_object(test_obj, getattr(line_object, field_name.lower()), field_value)
@@ -273,7 +247,7 @@ def build_and_verify_line_object(test_obj, line_obj_type, line_grammar, line_dat
     obj = line_obj_type(res)
     verify_line_object(test_obj, obj, line_data)
 
-class TestObjectCreation(unittest.TestCase):
+class TestLineObjectCreation(unittest.TestCase):
     def test_create_version_line_object(self):
         build_and_verify_line_object(self, objects.VersionLine, grammar.version_line, SampleData.vline_data)
 
@@ -297,7 +271,8 @@ class TestObjectCreation(unittest.TestCase):
 
     def test_create_generic_application_line_object(self):
         aline_data = {"prefix": "a=",
-                      "fields": [("GENERIC_APPLICATION_LINE", "some unknown generic line")]}
+                      "fields": [("GENERIC_APPLICATION_LINE", {"prefix": "",
+                                                               "fields": [("CONTENT", "some unknown generic line")]})]}
         build_and_verify_line_object(self, objects.ApplicationLine, grammar.application_line, aline_data)
 
     def test_create_direction_application_line_object(self):
@@ -305,6 +280,148 @@ class TestObjectCreation(unittest.TestCase):
                       "fields": [("DIRECTION_APPLICATION_LINE", {"prefix": "",
                                                                  "fields": [("DIRECTION", "sendrecv")]})]}
         build_and_verify_line_object(self, objects.ApplicationLine, grammar.application_line, aline_data)
+    
+    def test_create_rtcp_application_line_object(self):
+        aline_data = {"prefix": "a=",
+                      "fields": [("RTCP_APPLICATION_LINE", {"prefix": "rtcp:",
+                                                            "fields": [("PORT", "123"),
+                                                                       ("NETTYPE", "IN"),
+                                                                       ("ADDRTYPE", "IP4"),
+                                                                       ("IP_ADDR", "127.0.0.1")]})]}
+
+        build_and_verify_line_object(self, objects.ApplicationLine, grammar.application_line, aline_data)
+
+    def test_create_media_description_line_object(self):
+        build_and_verify_line_object(self, objects.MediaDescriptionLine, grammar.media_description_line, SampleData.mline_data)
+
+def verify_multi_line_object(test_obj, multi_line_obj, expected_data):
+    for sub_line, expected_line in zip(multi_line_obj.sub_lines, expected_data):
+        verify_line_object(test_obj, sub_line, expected_line)
+
+def verify_section_object(test_obj, session_object, expected_data):
+    for field_name, field_value in expected_data["fields"]:
+        if isinstance(field_value, list):
+            verify_multi_line_object(test_obj, getattr(session_object, field_name.lower()), field_value)
+        else:
+            verify_line_object(test_obj, getattr(session_object, field_name.lower()), field_value)
+
+def build_and_verify_section_object(test_obj, section_obj_type, section_grammar, section_data):
+    res = section_grammar.parseString(build_section_str(section_data))
+    section = section_obj_type(res)
+    verify_section_object(test_obj, section, section_data)
+
+class TestSectionObjectCreation(unittest.TestCase):
+    def test_create_session_section_object(self):
+        generic_aline_data = {"prefix": "a=",
+                              "fields": [("GENERIC_APPLICATION_LINE", {"prefix": "",
+                                                                       "fields": [("CONTENT", "some unknown generic line")]})]}
+
+        direction_aline_data = {"prefix": "a=",
+                                "fields": [("DIRECTION_APPLICATION_LINE", {"prefix": "",
+                                                                           "fields": [("DIRECTION", "sendrecv")]})]}
+
+        rtcp_aline_data = {"prefix": "a=",
+                           "fields": [("RTCP_APPLICATION_LINE", {"prefix": "rtcp:",
+                                                                 "fields": [("PORT", "1"),
+                                                                            ("NETTYPE", "IN"),
+                                                                            ("ADDRTYPE", "IP4"),
+                                                                            ("IP_ADDR", "127.0.0.1")]})]}
+
+        session_section_data = {"fields": [("VERSION_LINE", SampleData.vline_data),
+                                           ("ORIGINATOR_LINE", SampleData.oline_data),
+                                           ("SESSION_NAME_LINE", SampleData.sline_data),
+                                           ("SESSION_INFORMATION_LINE", SampleData.iline_data),
+                                           ("CONNECTION_INFORMATION_LINE", SampleData.cline_data),
+                                           ("BANDWIDTH_INFORMATION_LINES", [SampleData.bline_data]),
+                                           ("TIME_DESCRIPTION_LINES", [SampleData.tline_data]),
+                                           ("APPLICATION_LINES", [generic_aline_data, direction_aline_data, rtcp_aline_data])]}
+        
+        build_and_verify_section_object(self, objects.SessionSection, grammar.session_section, session_section_data)
+
+    def test_create_media_section_object(self):
+        generic_aline_data = {"prefix": "a=",
+                              "fields": [("GENERIC_APPLICATION_LINE", {"prefix": "",
+                                                                       "fields": [("CONTENT", "some unknown generic line")]})]}
+
+        direction_aline_data = {"prefix": "a=",
+                                "fields": [("DIRECTION_APPLICATION_LINE", {"prefix": "",
+                                                                           "fields": [("DIRECTION", "sendrecv")]})]}
+
+        rtcp_aline_data = {"prefix": "a=",
+                           "fields": [("RTCP_APPLICATION_LINE", {"prefix": "rtcp:",
+                                                                 "fields": [("PORT", "1"),
+                                                                            ("NETTYPE", "IN"),
+                                                                            ("ADDRTYPE", "IP4"),
+                                                                            ("IP_ADDR", "127.0.0.1")]})]}
+        media_section_data = {"fields": [("MEDIA_DESCRIPTION_LINE", SampleData.mline_data),
+                                         ("SESSION_INFORMATION_LINE", SampleData.iline_data),
+                                         ("CONNECTION_INFORMATION_LINE", SampleData.cline_data),
+                                         ("BANDWIDTH_INFORMATION_LINES", [SampleData.bline_data]),
+                                         ("APPLICATION_LINES", [generic_aline_data, direction_aline_data, rtcp_aline_data])]}
+
+        build_and_verify_section_object(self, objects.MediaSection, grammar.media_section, media_section_data)
+
+def build_sdp_str(sdp_data):
+    fields = sdp_data["fields"]
+    str = ""
+    for field_name, field_value in fields:
+        if isinstance(field_value, list):
+            str += "\n".join(build_section_str(sub_field) for sub_field in field_value)
+        else:
+            str += build_section_str(field_value)
+    return str
+
+def verify_multi_section_object(test_obj, multi_section_obj, expected_data):
+    for sub_section, expected_section_data in zip(multi_section_obj.sub_sections, expected_data):
+        verify_section_object(test_obj, sub_section, expected_section_data)
+
+def verify_sdp_object(test_obj, sdp_object, expected_data):
+    for field_name, field_value in expected_data["fields"]:
+        if isinstance(field_value, list):
+            verify_multi_section_object(test_obj, getattr(sdp_object, field_name.lower()), field_value)
+        else:
+            verify_section_object(test_obj, getattr(sdp_object, field_name.lower()), field_value)
+
+def build_and_verify_sdp_object(test_obj, sdp_obj_type, sdp_data):
+    sdp_str = build_sdp_str(sdp_data)
+    sdp_obj = sdp_obj_type(sdp_str)
+    verify_sdp_object(test_obj, sdp_obj, sdp_data)
+
+class TestSdpObjectCreation(unittest.TestCase):
+    def test_create_sdp_object(self):
+        generic_aline_data = {"prefix": "a=",
+                              "fields": [("GENERIC_APPLICATION_LINE", {"prefix": "",
+                                                                       "fields": [("CONTENT", "some unknown generic line")]})]}
+
+        direction_aline_data = {"prefix": "a=",
+                                "fields": [("DIRECTION_APPLICATION_LINE", {"prefix": "",
+                                                                           "fields": [("DIRECTION", "sendrecv")]})]}
+
+        rtcp_aline_data = {"prefix": "a=",
+                           "fields": [("RTCP_APPLICATION_LINE", {"prefix": "rtcp:",
+                                                                 "fields": [("PORT", "1"),
+                                                                            ("NETTYPE", "IN"),
+                                                                            ("ADDRTYPE", "IP4"),
+                                                                            ("IP_ADDR", "127.0.0.1")]})]}
+
+        session_section_data = {"fields": [("VERSION_LINE", SampleData.vline_data),
+                                           ("ORIGINATOR_LINE", SampleData.oline_data),
+                                           ("SESSION_NAME_LINE", SampleData.sline_data),
+                                           ("SESSION_INFORMATION_LINE", SampleData.iline_data),
+                                           ("CONNECTION_INFORMATION_LINE", SampleData.cline_data),
+                                           ("BANDWIDTH_INFORMATION_LINES", [SampleData.bline_data]),
+                                           ("TIME_DESCRIPTION_LINES", [SampleData.tline_data]),
+                                           ("APPLICATION_LINES", [generic_aline_data, direction_aline_data, rtcp_aline_data])]}
+        media_section_data = {"fields": [("MEDIA_DESCRIPTION_LINE", SampleData.mline_data),
+                                         ("SESSION_INFORMATION_LINE", SampleData.iline_data),
+                                         ("CONNECTION_INFORMATION_LINE", SampleData.cline_data),
+                                         ("BANDWIDTH_INFORMATION_LINES", [SampleData.bline_data]),
+                                         ("APPLICATION_LINES", [generic_aline_data, direction_aline_data, rtcp_aline_data])]}
+
+        sdp_data = {"fields": [("SESSION_SECTION", session_section_data),
+                               ("MEDIA_SECTIONS", [media_section_data])]}
+
+        build_and_verify_sdp_object(self, objects.Sdp, sdp_data)
 
 if __name__ == '__main__':
     unittest.main()
