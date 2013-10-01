@@ -24,16 +24,25 @@ class PyParsedLine(object):
 #  that isn't parsed as just a dictionary (the bottom of the chain) but is still a ParseResults object
 class PyParsedMetaLine(object):
     def __init__(self, parsed_line):
-        # Only 1 level of meta
-        assert len(parsed_line.keys()) == 1
-        sub_line_name = parsed_line.keys()[0]
-        sub_line = parsed_line[sub_line_name]
-        setattr(self, sub_line_name.lower(), SdpObjectMapping[sub_line_name](sub_line))
+        #print("creating object from meta line %s" % parsed_line.dump())
+        for sub_line_name in parsed_line.keys():
+            #print("looking at sub line: %s" % sub_line_name)
+            sub_line = parsed_line[sub_line_name]
+            # Meta line can be a mixture of sub-lines and direct fields
+            if isinstance(sub_line, basestring):
+                setattr(self, sub_line_name.lower(), sub_line)
+            else:
+                #print("setting attr %s to parsed meta line result" % sub_line_name.lower())
+                setattr(self, sub_line_name.lower(), SdpObjectMapping[sub_line_name](sub_line))
 
     def to_string(self, prefix=""):
         str = ""
         for var in vars(self).keys():
-            str += getattr(self, var).to_string(prefix)
+            attr = getattr(self, var)
+            if isinstance(attr, basestring):
+                str += (prefix + var + ": " + attr + "\n")
+            else:
+                str += (var + ":\n" + attr.to_string(prefix + "  "))
         return str
 
 # Used for lines that may be repeated more than once.  Takes the 'single line' type so that it can
@@ -43,6 +52,9 @@ class PyParsedMultiLine(object):
         self.sub_lines = []
         for line in parsed_lines:
             self.sub_lines.append(sub_line_type(line))
+
+    def __iter__(self):
+        return iter(self.sub_lines)
 
     def to_string(self, prefix=""):
         str = ""
@@ -122,10 +134,32 @@ class TimeDescriptionLines(PyParsedMultiLine):
     def __init__(self, parsed_lines):
         super(TimeDescriptionLines, self).__init__(TimeDescriptionLine, parsed_lines)
 
+class IceUfragApplicationLine(PyParsedLine):
+    pass
+
+class IcePwdApplicationLine(PyParsedLine):
+    pass
+
+class GroupApplicationLine(PyParsedLine):
+    pass
+
+class MidApplicationLine(PyParsedLine):
+    pass
+
+class RtcpMuxApplicationLine(PyParsedLine):
+    pass
+
 class DirectionApplicationLine(PyParsedLine):
     pass
 
 class RtcpApplicationLine(PyParsedLine):
+    pass
+
+class RtpMapApplicationLine(PyParsedMetaLine):
+    pass
+
+# Helper class to model the codec-info sub field of an rtpmap line
+class RtpMapCodecInfo(PyParsedLine):
     pass
 
 class GenericApplicationLine(PyParsedLine):
@@ -157,6 +191,12 @@ class MediaSection(PyParsedSection):
               SdpTerms.BANDWIDTH_INFORMATION_LINES, SdpTerms.APPLICATION_LINES]
     def __init__(self, parsed_media_section):
         super(MediaSection, self).__init__(parsed_media_section, MediaSection.fields)
+
+    @property
+    def direction(self):
+        for app_line in self.application_lines:
+            if hasattr(app_line, "direction_application_line"):
+                return app_line.direction_application_line.direction
 
     def to_string(self, prefix=""):
         return super(MediaSection, self).to_string(prefix, [x.lower() for x in MediaSection.fields])
@@ -209,6 +249,13 @@ SdpObjectMapping = {SdpTerms.VERSION_LINE: VersionLine,
                     SdpTerms.APPLICATION_LINES: ApplicationLines,
                     SdpTerms.DIRECTION_APPLICATION_LINE: DirectionApplicationLine,
                     SdpTerms.RTCP_APPLICATION_LINE: RtcpApplicationLine,
+                    SdpTerms.ICE_UFRAG_APPLICATION_LINE: IceUfragApplicationLine,
+                    SdpTerms.ICE_PWD_APPLICATION_LINE: IcePwdApplicationLine,
+                    SdpTerms.GROUP_APPLICATION_LINE: GroupApplicationLine,
+                    SdpTerms.MID_APPLICATION_LINE: MidApplicationLine,
+                    SdpTerms.RTCP_MUX_APPLICATION_LINE: RtcpMuxApplicationLine,
+                    SdpTerms.RTPMAP_APPLICATION_LINE: RtpMapApplicationLine,
+                    SdpTerms.RTPMAP_CODEC_INFO: RtpMapCodecInfo,
                     SdpTerms.GENERIC_APPLICATION_LINE: GenericApplicationLine,
                     SdpTerms.MEDIA_DESCRIPTION_LINE: MediaDescriptionLine,
                     SdpTerms.SESSION_SECTION: SessionSection,

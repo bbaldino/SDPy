@@ -89,13 +89,37 @@ application_line_direction = Group(direction("DIRECTION").setName("APPLICATION_L
 application_line_rtcp = Group(Suppress(Literal("rtcp:").setName("APPLICATION_LINE_RTCP_PREFIX")) + port("PORT") + Optional(nettype("NETTYPE")) + Optional(addrtype("ADDRTYPE")) + Optional(ip_addr("IP_ADDR")))
 # ice-ufrag
 application_line_ice_ufrag = Group(Suppress(Literal("ice-ufrag:").setName("APPLICATION_LINE_ICE_UFRAG_PREFIX")) + Word(alphanums + "+")("USERNAME"))
+# ice-pwd
+application_line_ice_pwd = Group(Suppress(Literal("ice-pwd:").setName("APPLICATION_LINE_ICE_PWD_PREFIX")) + Word(alphanums + "+")("PASSWORD"))
+# group
+application_line_group = Group(Suppress(Literal("group:").setName("APPLICATION_LINE_GROUP_PREFIX")) + Word(alphanums)("PURPOSE") + OneOrMore(Word(alphanums).setResultsName("IDS", listAllMatches=True)))
+# mid
+application_line_mid = Group(Suppress(Literal("mid:").setName("APPLICATION_LINE_MID_PREFIX")) + Word(alphanums)("ID"))
+# rtcp-mux
+application_line_rtcp_mux = Group(Literal("rtcp-mux")("RTCP_MUX").setName("APPLICATION_LINE_RTCP_MUX"))
+# rtpmap
+#TODO: it's tempting to 'group' the encoding name/clock rate/encoding parameters but, since it then creates a list of parse results, it's a bit hard to detect
+# when parsing things.  (it would show up as a list, which currently we detect as a repeated field, so we'd need to check that it was ParseResults objects in
+# the list and then know it was a grouped sub-field.  Will look into that as a possibility later if we really need it...)  Hmmm...this causes problems because then
+# the object gets duplicate member variables in the wrong places...
+application_line_rtpmap = Group(Suppress(Literal("rtpmap:").setName("APPLICATION_LINE_RTPMAP_PREFIX")) + 
+                                number("PT") + 
+                                Group(Word(alphanums)("ENCODING_NAME") + 
+                                      Suppress(Literal("/")) + 
+                                      number("CLOCK_RATE") + 
+                                      Optional(Suppress(Literal("/")) + 
+                                      restOfLine("ENCODING_PARAMETERS")))("RTPMAP_CODEC_INFO"))
 # Generic app line
 application_line_generic = Group(restOfLine("CONTENT").setName("APPLICATION_LINE_GENERIC"))
 # Line
-#application_line = Group(application_line_prefix + restOfLine("APP_LINE_DATA")).setName("APPLICATION_LINE")
 application_line = Group(application_line_prefix + (application_line_direction(SdpTerms.DIRECTION_APPLICATION_LINE) | 
                                                     application_line_rtcp(SdpTerms.RTCP_APPLICATION_LINE) | 
                                                     application_line_ice_ufrag(SdpTerms.ICE_UFRAG_APPLICATION_LINE) |
+                                                    application_line_ice_pwd(SdpTerms.ICE_PWD_APPLICATION_LINE) |
+                                                    application_line_group(SdpTerms.GROUP_APPLICATION_LINE) |
+                                                    application_line_mid(SdpTerms.MID_APPLICATION_LINE) |
+                                                    application_line_rtpmap(SdpTerms.RTPMAP_APPLICATION_LINE) |
+                                                    application_line_rtcp_mux(SdpTerms.RTCP_MUX_APPLICATION_LINE) |
                                                     application_line_generic(SdpTerms.GENERIC_APPLICATION_LINE)).setName("APPLICATION_LINE"))
 
 # ---- Media Description line ----

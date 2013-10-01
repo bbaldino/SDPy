@@ -3,13 +3,17 @@ import PyParsingSdpDefs as grammar
 import Sdp as objects
 
 def verify_line(test_obj, parsed_res, expected_line_data):
+    #print("verifying:\npyparsing object:\n%s\nexpected_data:\n%s" % (parsed_res.dump(), expected_line_data))
     expected_field_value_tuples = expected_line_data["fields"]
     for field, value in expected_field_value_tuples:
+        #print("looking at field %s with value %s" % (field, value))
         if isinstance(value, dict):
+            #print("meta-field, re-calling")
             verify_line(test_obj, parsed_res[field], value)
         else:
             test_obj.assertIn(field, parsed_res, "Couldn't find %s in\n%s" % (field, parsed_res.dump()))
             if isinstance(value, list):
+                #print("repeated field")
                 # If it's a repeated field (instance of list) grab it asList so we get the raw list instead of the
                 #  ParseResults object
                 test_obj.assertEqual(parsed_res[field].asList(), value)
@@ -34,22 +38,50 @@ def build_line_str(line_data):
     prefix = line_data["prefix"]
     fields = line_data["fields"]
     join_token = line_data["join_token"] if "join_token" in line_data else " "
+    str = prefix
+    first = True
+    for field_name, field_value in fields:
+        if isinstance(field_value, dict):
+            # meta field
+            if first:
+                str += build_line_str(field_value)
+                first = False
+            else:
+                str += (join_token + build_line_str(field_value))
+        elif isinstance(field_value, list):
+            # repeated field
+            if first:
+                str += " ".join(field_sub_value for field_sub_value in field_value)
+                first = False
+            else:
+                str += (join_token + " ".join(field_sub_value for field_sub_value in field_value))
+        else:
+            if first:
+                str += field_value
+                first = False
+            else:
+                str += (join_token + field_value)
+    return str
+
+    #prefix = line_data["prefix"]
+    #fields = line_data["fields"]
+    #join_token = line_data["join_token"] if "join_token" in line_data else " "
     # We may have a line that has a 'meta-field' (a "line within a line").  Mainly this is the case for a= lines
     #  TODO: for now we'll assume the presence of at least one meta-field implies that there are no normal fields
     #   (so far that's all I've seen)
-    meta_fields = [field_value for field_name, field_value in fields if isinstance(field_value, dict)]
-    if meta_fields:
-        return prefix + (join_token.join(build_line_str(sub_field) for sub_field in meta_fields))
-    else:
-        # A line may have a repeated sub-field, if so: detect it and join the values with spaces
-        def check_for_repeated(field):
-            if isinstance(field, list):
-                return " ".join(field_sub_value for field_sub_value in field_value)
-            else:
-                return field
-        # Check each value and call check_for_repeated to check if one of them is a repeated field, if so,
-        #  check_for_repeated will detect it and concatenate it into a single string for us
-        return prefix + join_token.join(map(check_for_repeated, [field[1] for field in fields]))
+    #meta_fields = [field_value for field_name, field_value in fields if isinstance(field_value, dict)]
+    #if meta_fields:
+    #    return prefix + (join_token.join(build_line_str(sub_field) for sub_field in meta_fields))
+    #else:
+    #    # A line may have a repeated sub-field, if so: detect it and join the values with spaces
+    #    def check_for_repeated(field):
+    #        if isinstance(field, list):
+    #            return " ".join(field_sub_value for field_sub_value in field)
+    #        else:
+    #            return field
+    #    # Check each value and call check_for_repeated to check if one of them is a repeated field, if so,
+    #    #  check_for_repeated will detect it and concatenate it into a single string for us
+    #    return prefix + join_token.join(map(check_for_repeated, [field[1] for field in fields]))
 
 def build_section_str(section_data):
     fields = section_data["fields"]
@@ -64,7 +96,9 @@ def build_section_str(section_data):
     return str
 
 def parse_and_verify_line(test_obj, line_grammar, line_data):
-    res = line_grammar.parseString(build_line_str(line_data))
+    line_str = build_line_str(line_data)
+    #print("got line str %s" % line_str)
+    res = line_grammar.parseString(line_str)
     res = res[0]
     verify_line(test_obj, res, line_data)
 
@@ -158,6 +192,45 @@ class TestLineParsing(unittest.TestCase):
 
         parse_and_verify_line(self, grammar.application_line, aline_data)
 
+    def test_parse_ice_pwd_application_line(self):
+        aline_data = {"prefix": "a=",
+                      "fields": [("ICE_PWD_APPLICATION_LINE", {"prefix": "ice-pwd:",
+                                                               "fields": [("PASSWORD", "abcdefghi1234+ab")]})]}
+
+        parse_and_verify_line(self, grammar.application_line, aline_data)
+
+    def test_parse_group_application_line(self):
+        aline_data = {"prefix": "a=",
+                      "fields": [("GROUP_APPLICATION_LINE", {"prefix": "group:",
+                                                             "fields": [("PURPOSE", "LS"),
+                                                                        ("IDS", ["1", "2"])]})]}
+
+        parse_and_verify_line(self, grammar.application_line, aline_data)
+        
+    def test_parse_mid_application_line(self):
+        aline_data = {"prefix": "a=",
+                      "fields": [("MID_APPLICATION_LINE", {"prefix": "mid:",
+                                                           "fields": [("ID", "audio")]})]}
+
+        parse_and_verify_line(self, grammar.application_line, aline_data)
+
+    def test_parse_rtcp_mux_application_line(self):
+        aline_data = {"prefix": "a=",
+                      "fields": [("RTCP_MUX_APPLICATION_LINE", {"prefix": "",
+                                                           "fields": [("RTCP_MUX", "rtcp-mux")]})]}
+
+        parse_and_verify_line(self, grammar.application_line, aline_data)
+
+    def test_parse_rtpmap_application_line(self):
+        aline_data = {"prefix": "a=",
+                      "fields": [("RTPMAP_APPLICATION_LINE", {"prefix": "rtpmap:",
+                                                              "fields": [("PT", "111"),
+                                                                         ("RTPMAP_CODEC_INFO", {"prefix": "",
+                                                                                                "join_token": "/",
+                                                                                                "fields": [("ENCODING_NAME", "OPUS"),
+                                                                                                           ("CLOCK_RATE", "48000"),
+                                                                                                           ("ENCODING_PARAMETERS", "2")]})]})]}
+        parse_and_verify_line(self, grammar.application_line, aline_data)
 
     def test_parse_media_description_line(self):
         parse_and_verify_line(self, grammar.media_description_line, SampleData.mline_data)
@@ -233,17 +306,23 @@ class TestSectionParsing(unittest.TestCase):
         parse_and_test_section(self, grammar.media_section, media_section_data)
 
 def verify_line_object(test_obj, line_object, expected_data):
+    #print("verifying line ===\n%s\n===" % line_object.to_string())
     for field_name, field_value in expected_data["fields"]:
+        #print("looking at field %s with value %s" % (field_name, field_value))
         # Meta-line
         if isinstance(field_value, dict):
+            #print("meta field, re-call")
             verify_line_object(test_obj, getattr(line_object, field_name.lower()), field_value)
         else:
+            #print("normal field")
             test_obj.assertEqual(field_value, getattr(line_object, field_name.lower()))
 
 def build_and_verify_line_object(test_obj, line_obj_type, line_grammar, line_data):
     line_str = build_line_str(line_data)
+    #print("got line string: %s" % line_str)
     res = line_grammar.parseString(line_str)
     res = res[0]
+    #print("got result: %s" % res.dump())
     obj = line_obj_type(res)
     verify_line_object(test_obj, obj, line_data)
 
@@ -289,6 +368,53 @@ class TestLineObjectCreation(unittest.TestCase):
                                                                        ("ADDRTYPE", "IP4"),
                                                                        ("IP_ADDR", "127.0.0.1")]})]}
 
+        build_and_verify_line_object(self, objects.ApplicationLine, grammar.application_line, aline_data)
+
+    def test_create_ice_ufrag_application_line_object(self):
+        aline_data = {"prefix": "a=",
+                      "fields": [("ICE_UFRAG_APPLICATION_LINE", {"prefix": "ice-ufrag:",
+                                                                 "fields": [("USERNAME", "abcdefghi1234+ab")]})]}
+
+        build_and_verify_line_object(self, objects.ApplicationLine, grammar.application_line, aline_data)
+
+    def test_create_ice_pwd_application_line_object(self):
+        aline_data = {"prefix": "a=",
+                      "fields": [("ICE_PWD_APPLICATION_LINE", {"prefix": "ice-pwd:",
+                                                               "fields": [("PASSWORD", "abcdefghi1234+ab")]})]}
+
+        build_and_verify_line_object(self, objects.ApplicationLine, grammar.application_line, aline_data)
+
+    def test_create_group_application_line_object(self):
+        aline_data = {"prefix": "a=",
+                      "fields": [("GROUP_APPLICATION_LINE", {"prefix": "group:",
+                                                             "fields": [("PURPOSE", "LS"),
+                                                                        ("IDS", ["1", "2"])]})]}
+
+        build_and_verify_line_object(self, objects.ApplicationLine, grammar.application_line, aline_data)
+
+    def test_create_mid_application_line_object(self):
+        aline_data = {"prefix": "a=",
+                      "fields": [("MID_APPLICATION_LINE", {"prefix": "mid:",
+                                                           "fields": [("ID", "audio")]})]}
+
+        build_and_verify_line_object(self, objects.ApplicationLine, grammar.application_line, aline_data)
+
+    def test_create_rtcp_mux_application_line_object(self):
+        aline_data = {"prefix": "a=",
+                      "fields": [("RTCP_MUX_APPLICATION_LINE", {"prefix": "",
+                                                           "fields": [("RTCP_MUX", "rtcp-mux")]})]}
+
+        build_and_verify_line_object(self, objects.ApplicationLine, grammar.application_line, aline_data)
+
+    def test_create_rtpmap_application_line_object(self):
+        aline_data = {"prefix": "a=",
+                      "fields": [("RTPMAP_APPLICATION_LINE", {"prefix": "rtpmap:",
+                                                              "fields": [("PT", "111"),
+                                                                         ("RTPMAP_CODEC_INFO", {"prefix": "",
+                                                                                                "join_token": "/",
+                                                                                                "fields": [("ENCODING_NAME", "OPUS"),
+                                                                                                           ("CLOCK_RATE", "48000"),
+                                                                                                           ("ENCODING_PARAMETERS", "2")]})]})]}
         build_and_verify_line_object(self, objects.ApplicationLine, grammar.application_line, aline_data)
 
     def test_create_media_description_line_object(self):
@@ -421,7 +547,10 @@ class TestSdpObjectCreation(unittest.TestCase):
         sdp_data = {"fields": [("SESSION_SECTION", session_section_data),
                                ("MEDIA_SECTIONS", [media_section_data])]}
 
-        build_and_verify_sdp_object(self, objects.Sdp, sdp_data)
+        #build_and_verify_sdp_object(self, objects.Sdp, sdp_data)
+        sdp = objects.Sdp(build_sdp_str(sdp_data))
+        print(sdp.to_string())
+        print(sdp.audio.direction)
 
 if __name__ == '__main__':
     unittest.main()
